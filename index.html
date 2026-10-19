@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Piano Try-Hard</title>
+  <meta name="description" content="Daily piano practice for beginners with a USB MIDI keyboard: finger drills, chords and ear training.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎹</text></svg>">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header>
+    <a class="logo" href="#/">🎹 Piano Try-Hard</a>
+    <nav>
+      <a href="#/">Home</a>
+      <a href="#/session">Today</a>
+      <a href="#/learn">Library</a>
+      <a href="#/chords">Chords</a>
+      <a href="#/free">Free play</a>
+      <a href="#/progress">Progress</a>
+      <a href="#/settings">Settings</a>
+    </nav>
+    <div class="right">
+      <div id="xp" class="xp"></div>
+      <button id="midi" class="midi none">Not connected</button>
+    </div>
+  </header>
+  <main id="main"></main>
+  <div id="toasts"></div>
+  <script src="js/theory.js"></script>
+  <script src="js/core.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/songs.js"></script>
+  <script src="js/drills.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
