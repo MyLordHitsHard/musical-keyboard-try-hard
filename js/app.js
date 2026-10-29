@@ -63,7 +63,7 @@
     }[status];
     midiEl.className = 'midi ' + status;
     midiEl.textContent = txt;
-    midiEl.title = status === 'connected' ? 'Keyboard connected' : 'Click to connect';
+    midiEl.title = status === 'connected' ? 'Connected: ' + names.join(', ') : txt + ' (click to connect)';
   }
   midiEl.addEventListener('click', () => PT.input.connect());
   PT.bus.on('midistatus', (st, names) => {
@@ -87,6 +87,12 @@
   });
   setInterval(renderXp, 15000);
 
+  const toneSel = document.getElementById('tone');
+  Object.entries(PT.audio.TONES).forEach(([id, t]) => toneSel.append(h('option', { value: id }, '🎵 ' + t.name)));
+  toneSel.value = S().tone;
+  toneSel.addEventListener('change', () => { store.set('tone', toneSel.value); PT.audio.melody([60, 64, 67, 72], 0.22); });
+  PT.bus.on('settings', (k, v) => { if (k === 'tone') toneSel.value = v; });
+
   // ---------------- Progress summaries ----------------
   function improvement(prefix, field, lowerBetter, filter) {
     const e = store.state.history.filter((x) => x.d.startsWith(prefix) && x[field] != null && (!filter || filter(x)));
@@ -98,75 +104,181 @@
     return { first, last, better };
   }
 
-  // ---------------- Daily session ----------------
-  function dayIndex() { return Math.floor(Date.now() / 86400000); }
-  function buildSession(minutes) {
-    const di = dayIndex();
-    const pats = PT.PATTERNS;
-    const pat = pats[di % pats.length];
-    const positions = ['C', 'C', 'G', 'F', 'Am', 'D', 'Dm'];
-    const pos = positions[Math.floor(di / pats.length) % positions.length];
-    const hand = ['R', 'L', 'R', 'B'][di % 4];
-    const nf = store.drill('notefinder', { level: 0 }).level;
-    const ch = store.drill('chords', { level: 0 }).level;
-    const scales = ['C', 'G', 'Am', 'F', 'D', 'Em', 'A', 'Dm', 'E'];
-    const songs = PT.SONGS;
-    const learned = (s) => (store.state.drills[`song:${s.id}:read`] || {}).clean >= 3;
-    const nextSong = songs.find((s) => !learned(s));
-    const earSong = songs.filter(learned)[di % Math.max(1, songs.filter(learned).length)];
+  // ---------------- Daily lesson ----------------
+  // Repetition first: each block ends after a number of successful reps (not a timer), and the
+  // same exercises come back every day until they are mastered. Only then does the lesson move on.
+  const MASTER_BPM = 72; // a finger exercise is "mastered" once its goal tempo reaches this
+  function dayIndex() { return Math.floor((Date.now() - new Date().getTimezoneOffset() * 60000) / 86400000); }
+  const goalOf = (id) => (store.state.drills[id] || {}).goal || 0;
 
+  const fingerCourse = () => ['C', 'G', 'F', 'Am', 'D', 'Dm'].flatMap((pos) =>
+    ['updown', 'pairs', 'thumb', 'triad', 'alankar1', 'weak', 'thirds', 'alankar2'].flatMap((pattern) =>
+      (pattern === 'updown' || pattern === 'triad' ? ['R', 'L', 'B'] : ['R', 'L']).map((hand) => ({ pattern, pos, hand }))));
+  const patId = (p) => `pattern:${p.pattern}:${p.pos}:${p.hand}`;
+  const scaleCourse = () => ['C', 'G', 'F', 'Am', 'D', 'Em', 'A', 'Dm', 'E'].flatMap((scale) => [{ scale, hand: 'R' }, { scale, hand: 'L' }]);
+  const scaleId = (p) => `scale:${p.scale}:${p.hand}`;
+  const progCourse = () => ['C', 'G', 'F', 'D', 'A'].flatMap((key) => ['pop', '50s', 'sad'].map((prog) => ({ prog, key })));
+  const progId = (p) => `prog:${p.prog}:${p.key}`;
+  const firstOpen = (list, idf, bpm = MASTER_BPM) => list.find((p) => goalOf(idf(p)) < bpm) || list[dayIndex() % list.length];
+
+  function songStage() {
+    for (const s of PT.SONGS) {
+      const learn = store.state.drills[`song:${s.id}:read`] || {};
+      if ((learn.clean || 0) < 8) return { song: s, mode: 'read', have: learn.clean || 0, need: 8 };
+      const ear = store.state.drills[`song:${s.id}:ear`] || {};
+      if ((ear.good || 0) < 2) return { song: s, mode: 'ear', have: ear.good || 0, need: 2 };
+    }
+    return { song: PT.SONGS[dayIndex() % PT.SONGS.length], mode: 'ear', review: true };
+  }
+
+  function buildLesson(minutes) {
+    const di = dayIndex();
+    const f = minutes / 15;
+    const n = (x) => Math.max(2, Math.round(x * f));
     const blocks = [];
-    blocks.push({ label: 'Warm-up: fingers', id: 'pattern', p: { pattern: pat.id, pos, hand }, w: 2 });
-    if (nf < 5 || Math.random() < 0.2) blocks.push({ label: 'Keyboard map', id: 'notefinder', p: {}, w: 2 });
-    else blocks.push({ label: 'Scale', id: 'scale', p: { scale: scales[di % scales.length], hand: di % 2 ? 'L' : 'R' }, w: 2 });
-    if (ch < 2 || di % 3 === 0) blocks.push({ label: 'Chords', id: 'chords', p: {}, w: 3 });
-    else if (di % 3 === 1) blocks.push({ label: 'Chord changes', id: 'changes', p: { pair: PT.PAIRS[di % PT.PAIRS.length] }, w: 3 });
-    else blocks.push({ label: 'Progression', id: 'prog', p: { prog: T.PROGRESSIONS[di % T.PROGRESSIONS.length].id, key: ['C', 'G', 'F', 'D', 'A'][di % 5] }, w: 3 });
-    blocks.push({ label: 'Ear: echo', id: 'echo', p: {}, w: 4 });
-    if (minutes >= 20) blocks.push({ label: 'Ear: ' + ['scale notes', 'intervals', 'major/minor'][di % 3], id: ['degree', 'interval', 'quality'][di % 3], p: {}, w: 2 });
-    if (earSong && (di % 2 === 0 || !nextSong)) blocks.push({ label: 'Song by ear: ' + earSong.title, id: 'song', p: { song: earSong.id, mode: 'ear' }, w: 3 });
-    else if (nextSong) blocks.push({ label: 'Song: ' + nextSong.title, id: 'song', p: { song: nextSong.id }, w: 3 });
-    const tw = blocks.reduce((a, b) => a + b.w, 0);
-    blocks.forEach((b) => (b.sec = Math.round(((b.w / tw) * minutes * 60) / 30) * 30 || 60));
+    const warm = firstOpen(fingerCourse(), patId);
+    const fp = PT.PATTERNS.find((x) => x.id === warm.pattern);
+    const handName = { R: 'right', L: 'left', B: 'both hands' }[warm.hand];
+    blocks.push({ label: 'Fingers', what: `${fp.name.split(' (')[0]} · ${warm.pos} · ${handName}`, id: 'pattern', p: warm, target: n(10), unit: 'clean reps', mastery: patId(warm) });
+
+    if (store.drill('notefinder', { level: 0 }).level < PT.NF_LEVELS.length - 1) {
+      blocks.push({ label: 'Keyboard map', what: 'Find the note', id: 'notefinder', p: {}, target: n(30), unit: 'notes found first try' });
+    } else {
+      const sc = firstOpen(scaleCourse(), scaleId);
+      blocks.push({ label: 'Scale', what: `${sc.scale} · ${sc.hand === 'L' ? 'left' : 'right'} hand`, id: 'scale', p: sc, target: n(8), unit: 'clean reps', mastery: scaleId(sc) });
+    }
+
+    const chLevel = store.drill('chords', { level: 0 }).level;
+    const bests = (store.state.drills.changes || {}).best || {};
+    const pair = PT.PAIRS.find((p) => (bests[p] || 0) < 30) || PT.PAIRS[di % PT.PAIRS.length];
+    if (chLevel < 3 || di % 3 === 0) blocks.push({ label: 'Chords', what: 'Chord shapes', id: 'chords', p: {}, target: n(24), unit: 'chords played' });
+    else if (di % 3 === 1) blocks.push({ label: 'Chord changes', what: pair.replace('-', ' ↔ ') + ' (goal: 30 / min)', id: 'changes', p: { pair }, target: Math.max(2, Math.round(3 * f)), unit: 'one-minute runs' });
+    else {
+      const pr = firstOpen(progCourse(), progId, 50);
+      blocks.push({ label: 'Progression', what: `${pr.prog} loop in ${pr.key}`, id: 'prog', p: pr, target: n(8), unit: 'clean loops', mastery: progId(pr), masterAt: 50 });
+    }
+
+    blocks.push({ label: 'Ear: echo', what: 'Hear it → play it', id: 'echo', p: {}, target: n(12), unit: 'tunes played back' });
+    if (minutes >= 20) {
+      const q = ['degree', 'interval', 'quality'][di % 3];
+      blocks.push({ label: 'Ear quiz', what: PT.drills[q].name, id: q, p: {}, target: n(12), unit: 'correct answers' });
+    }
+
+    const ss = songStage();
+    blocks.push(ss.mode === 'read'
+      ? { label: 'Song', what: `${ss.song.title} (${ss.have}/${ss.need} clean plays to unlock "by ear")`, id: 'song', p: { song: ss.song.id }, target: Math.max(2, Math.round(4 * f)), unit: 'clean plays' }
+      : { label: 'Song by ear', what: ss.song.title + (ss.review ? ' (review)' : ''), id: 'song', p: { song: ss.song.id, mode: 'ear' }, target: n(6), unit: 'phrases' });
+
+    // Finish where you started: the same finger exercise again, so it gets two spaced doses a day.
+    blocks.push({ label: 'Fingers again', what: 'Same exercise as the warm-up', id: 'pattern', p: warm, target: n(5), unit: 'clean reps', mastery: patId(warm) });
+    blocks.forEach((b, i) => (b.key = i + ':' + b.id + ':' + JSON.stringify(b.p)));
     return blocks;
+  }
+
+  // Today's progress through the lesson survives reloads.
+  function lessonState(blocks) {
+    const d = store.day();
+    d.lesson = d.lesson || {};
+    blocks.forEach((b) => (d.lesson[b.key] = d.lesson[b.key] || 0));
+    return d.lesson;
   }
 
   function viewSession() {
     const minutes = S().sessionMinutes;
-    const blocks = buildSession(minutes);
-    let cur = 0, left = blocks[0].sec, running = true, total = 0;
+    const blocks = buildLesson(minutes);
+    const done = lessonState(blocks);
+    let cur = Math.max(0, blocks.findIndex((b) => done[b.key] < b.target));
+    if (blocks.every((b) => done[b.key] >= b.target)) cur = blocks.length;
+    let running = true, total = 0, blockSec = 0, autoT = null;
     const ribbon = h('div.ribbon');
     const timer = h('div.timer');
     const nextBtn = h('button.primary', { onclick: () => go(cur + 1) }, 'Next ▶');
     const pauseBtn = h('button', { onclick: () => { running = !running; pauseBtn.textContent = running ? '⏸ Pause' : '▶ Resume'; } }, '⏸ Pause');
+    const goalEl = h('div.goalbar');
     const area = h('div');
-    main.append(h('div.sessionbar', ribbon, timer, pauseBtn, nextBtn), area);
+    main.append(h('div.sessionbar', ribbon, timer, pauseBtn, nextBtn), goalEl, area);
+
     function drawRibbon() {
       ribbon.innerHTML = '';
-      blocks.forEach((b, i) => ribbon.append(h('button.rb' + (i < cur ? '.done' : i === cur ? '.cur' : ''), { onclick: () => go(i) }, h('b', i + 1), ' ' + b.label, h('small', ' ' + Math.round(b.sec / 60 * 10) / 10 + 'm'))));
+      blocks.forEach((b, i) => {
+        const fin = done[b.key] >= b.target;
+        ribbon.append(h('button.rb' + (fin ? '.done' : '') + (i === cur ? '.cur' : ''), { onclick: () => go(i), title: b.what },
+          h('b', fin ? '✓' : i + 1), ' ' + b.label, h('small', ` ${Math.min(done[b.key], b.target)}/${b.target}`)));
+      });
+    }
+    function drawGoal() {
+      const b = blocks[cur];
+      if (!b) { goalEl.innerHTML = ''; return; }
+      const have = Math.min(done[b.key], b.target);
+      const kids = [
+        h('div.gtext', h('b', b.label + ': '), b.what, ' — ', h('b', `${have} / ${b.target} ${b.unit}`)),
+        h('div.gbar', h('span', { style: { width: (have / b.target) * 100 + '%' } })),
+      ];
+      if (b.mastery) {
+        const st = store.state.drills[b.mastery] || {};
+        const at = b.masterAt || MASTER_BPM;
+        const g = st.goal || 0;
+        kids.push(h('div.gmaster', g >= at
+          ? '🏆 Mastered! Tomorrow the lesson moves to the next exercise.'
+          : `Mastery: goal tempo ${g || '–'} → ${at} BPM. This exercise stays in your daily lesson until you get there — repetition is the point.`));
+      }
+      goalEl.innerHTML = '';
+      goalEl.append(...kids);
     }
     function go(i) {
+      clearTimeout(autoT);
+      nextBtn.textContent = 'Next ▶';
       if (i >= blocks.length) return finish();
       cur = i;
-      left = blocks[i].sec;
+      blockSec = 0;
       nextBtn.classList.remove('pulse');
       drawRibbon();
+      drawGoal();
       startDrill(blocks[i].id, blocks[i].p, area);
     }
+    function autoNext(sec) {
+      nextBtn.textContent = `Next in ${sec}…`;
+      if (sec <= 0) return go(cur + 1);
+      autoT = setTimeout(() => (running ? autoNext(sec - 1) : autoNext(sec)), 1000);
+    }
+    cleanup.push(PT.bus.on('unit', (u) => {
+      const b = blocks[cur];
+      if (!b || !u.ok) return;
+      done[b.key]++;
+      store.save();
+      drawRibbon();
+      drawGoal();
+      if (done[b.key] === b.target) {
+        PT.audio.ding();
+        store.addXp(10);
+        toast(`✓ ${b.label} done! (+10 XP)`, 'good');
+        nextBtn.classList.add('pulse');
+        autoNext(5);
+      }
+    }));
     function finish() {
       clearInterval(iv);
       if (active && active.destroy) active.destroy();
       active = null;
       if (piano) piano.destroy();
       piano = null;
-      store.addXp(25);
-      store.log('session', { min: Math.round(total / 60) });
+      const complete = blocks.every((b) => done[b.key] >= b.target);
+      if (complete && !store.day().lessonDone) {
+        store.day().lessonDone = true;
+        store.addXp(25);
+        store.log('session', { min: Math.round(total / 60), blocks: blocks.length });
+      }
       area.innerHTML = '';
+      goalEl.innerHTML = '';
       area.append(h('div.panel.center',
-        h('h2', '🎉 Session complete!'),
-        h('p', `You practised ${Math.round(total / 60)} minutes. Streak: ${store.streak()} day(s). +25 XP`),
-        h('p.tip', 'Your hands keep learning while you rest — sleep after practice is when a lot of motor learning gets locked in. Same time tomorrow?'),
-        h('div.row', h('a.btn.primary', { href: '#/progress' }, 'See my progress'), h('a.btn', { href: '#/' }, 'Home'))));
+        h('h2', complete ? '🎉 Today’s lesson complete!' : 'Lesson paused'),
+        h('p', complete
+          ? `Every block done. Streak: ${store.streak()} day(s).`
+          : `${blocks.filter((b) => done[b.key] >= b.target).length} of ${blocks.length} blocks done. Your reps are saved — come back any time today to finish.`),
+        h('p.tip', 'Tomorrow you get the same exercises again until they are mastered. Same exercise + many days = automatic hands. Sleep after practice is when a lot of motor learning gets locked in.'),
+        h('div.row', h('a.btn.primary', { href: '#/report' }, 'Am I improving? → Report'),
+          complete ? h('button', { onclick: () => { blocks.forEach((b) => (done[b.key] = 0)); store.save(); route(); } }, '🔁 One more round') : null,
+          h('a.btn', { href: '#/' }, 'Home'))));
       ribbon.innerHTML = '';
       timer.textContent = '';
       nextBtn.remove(); pauseBtn.remove();
@@ -174,16 +286,13 @@
     const iv = setInterval(() => {
       if (!running || document.hidden) return;
       total++;
-      left--;
-      timer.textContent = left > 0 ? fmtTime(left) : '⏰ time!';
-      if (left === 0) {
-        PT.audio.ding();
-        nextBtn.classList.add('pulse');
-        toast(cur + 1 < blocks.length ? 'Time for the next block — finish your rep, then press Next ▶' : 'Last block done — press Next ▶ to finish');
-      }
+      blockSec++;
+      timer.textContent = fmtTime(total);
+      const b = blocks[cur];
+      if (b && blockSec === 8 * 60 && done[b.key] < b.target) toast('Long block! It’s fine to press Next — your reps are saved for today.');
     }, 1000);
-    cleanup.push(() => clearInterval(iv));
-    go(0);
+    cleanup.push(() => { clearInterval(iv); clearTimeout(autoT); });
+    go(cur);
   }
 
   // ---------------- Home ----------------
@@ -200,8 +309,9 @@
     main.append(...[
       h('div.panel',
         h('h1', 'Hi! Ready for today’s practice?'),
-        h('p.lead', `${S().sessionMinutes} focused minutes, split into short blocks so it never gets boring. Little and often beats long and rare.`),
-        h('div.row', h('a.btn.primary.big', { href: '#/session' }, '▶ Start today’s session'), h('a.btn', { href: '#/learn' }, 'Pick a drill myself'), h('a.btn', { href: '#/free' }, 'Free play')),
+        h('p.lead', 'Your daily lesson is built on repetition: the same exercises every day, a set number of clean reps each, until they are mastered.'),
+        lessonCard(),
+        h('div.row', h('a.btn.primary.big', { href: '#/session' }, lessonLabel()), h('a.btn', { href: '#/report' }, '📈 Am I improving?'), h('a.btn', { href: '#/learn' }, 'Pick a drill myself'), h('a.btn', { href: '#/free' }, 'Free play')),
         h('div.stats',
           h('div.stat', h('div.v', '🔥 ' + store.streak()), h('div.l', 'day streak')),
           h('div.stat', h('div.v', Math.round(store.day().sec / 60) + ' min'), h('div.l', 'today')),
@@ -221,6 +331,19 @@
         h('div.impc' + (v.better ? '.up' : ''), h('div.l', n), h('div.v', f(v.first), ' → ', h('b', f(v.last))), h('div.s', v.better ? 'better ✓' : 'keep going'))))) : null,
       h('div.panel', h('h3', 'The plan'), roadmap()),
     ].filter(Boolean));
+  }
+
+  function lessonLabel() {
+    const blocks = buildLesson(S().sessionMinutes);
+    const done = lessonState(blocks);
+    const n = blocks.filter((b) => done[b.key] >= b.target).length;
+    return n === 0 ? '▶ Start today’s lesson' : n < blocks.length ? `▶ Continue lesson (${n}/${blocks.length} done)` : '✓ Lesson done — practise more';
+  }
+  function lessonCard() {
+    const blocks = buildLesson(S().sessionMinutes);
+    const done = lessonState(blocks);
+    return h('div.lessonlist', blocks.map((b, i) => h('div.li' + (done[b.key] >= b.target ? '.done' : ''),
+      h('b', done[b.key] >= b.target ? '✓' : i + 1), h('span', h('strong', b.label), ' — ' + b.what), h('small', `${Math.min(done[b.key], b.target)}/${b.target} ${b.unit}`))));
   }
 
   function roadmap() {
@@ -422,7 +545,7 @@
   function viewProgress() {
     const panel = h('div.panel');
     main.append(panel);
-    panel.append(h('h1', 'Progress'), h('p.lead', 'Each dot is a day. Ups and downs are normal — look at the trend over weeks.'));
+    panel.append(h('h1', 'Progress'), h('p.lead', 'Each dot is a day. Ups and downs are normal — look at the trend over weeks. ', h('a', { href: '#/report' }, '← Back to the report')));
     const days = Object.keys(store.state.days).sort().map((k) => ({ x: k, y: Math.round(store.state.days[k].sec / 6) / 10 }));
     const charts = [
       ['Practice minutes per day (hands on keys)', days, { type: 'bar', zero: true }],
@@ -475,7 +598,9 @@
       h('label', 'Main hand for drills ', sel('hand', [['R', 'Right'], ['L', 'Left']])),
       h('label', 'Daily session length ', sel('sessionMinutes', [[10, '10 minutes'], [15, '15 minutes'], [20, '20 minutes'], [30, '30 minutes']])),
       h('h3', 'Sound'),
-      h('label', chk('promptsToKeyboard'), ' Play the app’s example tunes through the Casio’s speakers (via USB) instead of the laptop'),
+      h('label', 'App tone ', sel('tone', Object.entries(PT.audio.TONES).map(([id, t]) => [id, t.name])), ' ', h('button', { onclick: () => PT.audio.melody([60, 62, 64, 65, 67], 0.25) }, '▶ Try')),
+      h('label', chk('earToneVariety'), ' Ear training: use a different tone for every question (trains your ear to recognise notes on any instrument — harder!)'),
+      h('label', chk('promptsToKeyboard'), ' Play the app’s example tunes through the Casio’s speakers (via USB) instead of the laptop — the chosen tone is sent too'),
       h('label', chk('appSoundForMidi'), ' Laptop also makes sound when I play the Casio (only if the keyboard volume is down / headphones)'),
       h('label', 'App volume ', rng('volume')),
       h('label', 'Metronome volume ', rng('metronomeVolume')),
@@ -501,7 +626,8 @@
     const [path, qs] = location.hash.replace(/^#\/?/, '').split('?');
     const parts = path.split('/');
     const params = Object.fromEntries(new URLSearchParams(qs || ''));
-    document.querySelectorAll('nav a').forEach((a) => a.classList.toggle('on', a.getAttribute('href') === '#/' + parts[0]));
+    const navKey = parts[0] === 'progress' ? 'report' : parts[0];
+    document.querySelectorAll('nav a').forEach((a) => a.classList.toggle('on', a.getAttribute('href') === '#/' + navKey));
     switch (parts[0]) {
       case 'session': viewSession(); break;
       case 'learn': viewLearn(); break;
@@ -509,6 +635,7 @@
       case 'free': viewFree(); break;
       case 'chords': viewChords(); break;
       case 'progress': viewProgress(); break;
+      case 'report': PT.report.view(main); break;
       case 'settings': viewSettings(); break;
       default: viewHome();
     }

@@ -23,6 +23,8 @@
     sessionMinutes: 15,
     hand: 'R',
     ignoreDrumChannel: true,
+    tone: 'piano', // sound of the app's own synth (example tunes, computer-keyboard playing)
+    earToneVariety: false, // ear training: a different tone for each question
   };
   const today = () => {
     const d = new Date();
@@ -48,7 +50,9 @@
       try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* storage unavailable */ }
     }, 300);
   }
+  let replaced = false; // set when import/reset rewrote storage, so unload must not overwrite it
   window.addEventListener('beforeunload', () => {
+    if (replaced) return;
     try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
   });
 
@@ -98,10 +102,12 @@
     import(json) {
       const s = JSON.parse(json);
       if (!s || typeof s !== 'object' || !s.settings) throw new Error('Not a progress file');
+      clearTimeout(saveTimer);
+      replaced = true;
       localStorage.setItem(KEY, JSON.stringify(s));
       location.reload();
     },
-    reset() { localStorage.removeItem(KEY); location.reload(); },
+    reset() { clearTimeout(saveTimer); replaced = true; localStorage.removeItem(KEY); location.reload(); },
   };
 
   // Count "hands on keys" time: gaps under 45 s between notes count as practice.
@@ -130,37 +136,86 @@
   }
   PT.bus.on('settings', (k, v) => { if (k === 'volume' && master) master.gain.value = v; });
 
+  // ---- Tones ----
+  // p: partials [freq multiple, waveform, gain, detune cents]; env: percussive (decay) or sustained.
+  // gm: General MIDI program, sent to the Casio when example tunes play through its speakers.
+  const TONES = {
+    piano: { name: 'Grand piano', gm: 0, p: [[1, 'triangle', 1], [2, 'sine', 0.35], [3, 'sine', 0.12], [0.5, 'sine', 0.15]], a: 0.008, decay: 3.2, bright: 6 },
+    epiano: { name: 'Electric piano', gm: 4, p: [[1, 'sine', 1], [2, 'sine', 0.2], [7, 'sine', 0.06]], a: 0.005, decay: 2.6, bright: 8 },
+    harmonium: { name: 'Harmonium', gm: 21, p: [[1, 'sawtooth', 0.55], [1, 'sawtooth', 0.4, 6], [2, 'square', 0.12]], a: 0.06, sustain: 0.8, release: 0.15, bright: 4 },
+    organ: { name: 'Organ', gm: 16, p: [[1, 'sine', 1], [2, 'sine', 0.6], [3, 'sine', 0.35], [4, 'sine', 0.25], [0.5, 'sine', 0.5]], a: 0.01, sustain: 0.9, release: 0.08, bright: 12 },
+    strings: { name: 'Strings', gm: 48, p: [[1, 'sawtooth', 0.5, -8], [1, 'sawtooth', 0.5, 8], [2, 'sawtooth', 0.12]], a: 0.25, sustain: 0.85, release: 0.5, bright: 3, vib: 0.004 },
+    flute: { name: 'Flute (bansuri)', gm: 73, p: [[1, 'sine', 1], [2, 'triangle', 0.12], [3, 'sine', 0.05]], a: 0.07, sustain: 0.85, release: 0.15, bright: 6, vib: 0.006 },
+    sitar: { name: 'Sitar', gm: 104, p: [[1, 'sawtooth', 0.7], [2, 'sawtooth', 0.25], [3.01, 'square', 0.1]], a: 0.004, decay: 2.8, bright: 10, bend: 0.97, buzz: true },
+    guitar: { name: 'Nylon guitar', gm: 24, p: [[1, 'triangle', 1], [2, 'sawtooth', 0.15], [3, 'sine', 0.1]], a: 0.004, decay: 1.8, bright: 5, pluck: true },
+    musicbox: { name: 'Music box', gm: 10, p: [[1, 'sine', 1], [4, 'sine', 0.25], [6.8, 'sine', 0.08]], a: 0.003, decay: 1.4, bright: 12 },
+    synth: { name: 'Synth lead', gm: 80, p: [[1, 'square', 0.5], [1, 'sawtooth', 0.35, 7]], a: 0.01, sustain: 0.75, release: 0.1, bright: 5, vib: 0.003 },
+  };
+
   const voices = new Map(); // midi -> {stop}
-  function synthNote(m, when = 0, dur = null, vel = 0.8) {
+  function synthNote(m, when = 0, dur = null, vel = 0.8, toneId) {
+    const tone = TONES[toneId || state.settings.tone] || TONES.piano;
     const c = ac();
     const t0 = c.currentTime + Math.max(0, when);
     const f = T.freq(m);
     const out = c.createGain();
     const lp = c.createBiquadFilter();
     lp.type = 'lowpass';
-    lp.frequency.value = Math.min(8000, f * 6 + 800);
-    out.connect(lp).connect(master);
+    lp.frequency.value = Math.min(12000, f * tone.bright + 800);
+    if (tone.pluck) { // plucked string: filter closes as the note dies
+      lp.frequency.setValueAtTime(Math.min(12000, f * 12), t0);
+      lp.frequency.exponentialRampToValueAtTime(Math.max(200, f * 1.5), t0 + 0.6);
+    }
+    let chain = lp;
+    if (tone.buzz) { // sitar "jawari" buzz: a resonant peak high up
+      const pk = c.createBiquadFilter();
+      pk.type = 'peaking'; pk.frequency.value = 2800; pk.Q.value = 4; pk.gain.value = 10;
+      lp.connect(pk);
+      chain = pk;
+    }
+    out.connect(lp);
+    chain.connect(master);
     const peak = 0.28 * vel;
+    const end = tone.decay ? t0 + tone.decay : null;
     out.gain.setValueAtTime(0.0001, t0);
-    out.gain.exponentialRampToValueAtTime(peak, t0 + 0.008);
-    out.gain.exponentialRampToValueAtTime(peak * 0.35, t0 + 0.35);
-    out.gain.exponentialRampToValueAtTime(0.0001, t0 + 3.2);
-    const oscs = [[1, 'triangle', 1], [2, 'sine', 0.35], [3, 'sine', 0.12], [0.5, 'sine', 0.15]].map(([mult, type, g]) => {
+    out.gain.exponentialRampToValueAtTime(peak, t0 + tone.a);
+    if (tone.decay) {
+      out.gain.exponentialRampToValueAtTime(peak * 0.35, t0 + tone.a + tone.decay * 0.11);
+      out.gain.exponentialRampToValueAtTime(0.0001, end);
+    } else {
+      out.gain.setTargetAtTime(peak * tone.sustain, t0 + tone.a, 0.1);
+    }
+    let lfo = null;
+    if (tone.vib) {
+      lfo = c.createOscillator();
+      lfo.frequency.value = 5.2;
+      lfo.start(t0 + 0.25);
+    }
+    const oscs = tone.p.map(([mult, type, g, det]) => {
       const o = c.createOscillator();
       const og = c.createGain();
       o.type = type;
       o.frequency.value = f * mult;
-      og.gain.value = g;
+      if (det) o.detune.value = det;
+      if (tone.bend) {
+        o.frequency.setValueAtTime(f * mult * tone.bend, t0);
+        o.frequency.exponentialRampToValueAtTime(f * mult, t0 + 0.07);
+      }
+      if (lfo) { const lg = c.createGain(); lg.gain.value = f * mult * tone.vib; lfo.connect(lg).connect(o.frequency); }
+      og.gain.value = g / tone.p.length * 1.6;
       o.connect(og).connect(out);
       o.start(t0);
-      o.stop(t0 + 3.3);
+      if (end) o.stop(end + 0.1);
       return o;
     });
+    if (lfo && end) lfo.stop(end + 0.1);
     const stop = (at) => {
       const t = Math.max(at ?? c.currentTime, t0 + 0.02);
       out.gain.cancelScheduledValues(t);
-      out.gain.setTargetAtTime(0.0001, t, 0.08);
-      oscs.forEach((o) => { try { o.stop(t + 0.5); } catch (e) { /* already stopped */ } });
+      out.gain.setTargetAtTime(0.0001, t, tone.release ? tone.release / 3 : 0.08);
+      const off = t + (tone.release || 0.25) * 2 + 0.3;
+      oscs.forEach((o) => { try { o.stop(off); } catch (e) { /* already stopped */ } });
+      if (lfo) try { lfo.stop(off); } catch (e) { /* already stopped */ }
     };
     if (dur != null) stop(t0 + dur);
     return { stop };
@@ -169,9 +224,13 @@
   function midiOut() {
     return state.settings.promptsToKeyboard && PT.input && PT.input.output;
   }
+  let sentProgram = null;
 
   PT.audio = {
     ac,
+    TONES,
+    // A drill can override the tone of example tunes (e.g. ear training with random tones).
+    promptTone: null,
     get now() { return ac().currentTime; },
     // Sound for live key presses (computer keyboard / mouse / optional MIDI echo).
     liveOn(m, vel = 0.8) {
@@ -182,7 +241,12 @@
     // Play example notes: [{m, t(sec from now), d(sec)}]. Returns total duration in seconds.
     play(events) {
       const out = midiOut();
+      const tone = PT.audio.promptTone || state.settings.tone;
       let end = 0;
+      if (out && sentProgram !== tone) {
+        out.send([0xc0, (TONES[tone] || TONES.piano).gm]); // program change on channel 1
+        sentProgram = tone;
+      }
       events.forEach((e) => {
         const dur = e.d ?? 0.5;
         end = Math.max(end, e.t + dur);
@@ -191,7 +255,7 @@
           out.send([0x90, e.m, 90], base);
           out.send([0x80, e.m, 0], base + dur * 1000);
         } else {
-          synthNote(e.m, e.t, dur, e.v ?? 0.8);
+          synthNote(e.m, e.t, dur, e.v ?? 0.8, tone);
         }
       });
       PT.audio.busyUntil = performance.now() + end * 1000;
@@ -201,6 +265,13 @@
     chord(ms, dur = 1.2, t = 0) { return PT.audio.play(ms.map((m) => ({ m, t, d: dur }))); },
     melody(ms, step = 0.55, start = 0) {
       return PT.audio.play(ms.map((m, i) => ({ m, t: start + i * step, d: step * 0.95 })));
+    },
+    // Pick a tone for an ear-training question (random if the setting asks for variety).
+    earTone() {
+      if (!state.settings.earToneVariety) { PT.audio.promptTone = null; return null; }
+      const ids = Object.keys(TONES);
+      PT.audio.promptTone = ids[Math.floor(Math.random() * ids.length)];
+      return TONES[PT.audio.promptTone].name;
     },
     busyUntil: 0,
     isBusy() { return performance.now() < PT.audio.busyUntil; },

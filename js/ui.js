@@ -28,6 +28,7 @@
     const box = document.getElementById('toasts');
     const t = h('div.toast' + (kind ? '.' + kind : ''), msg);
     box.append(t);
+    while (box.children.length > 3) box.firstChild.remove();
     setTimeout(() => t.classList.add('out'), 2200);
     setTimeout(() => t.remove(), 2700);
   }

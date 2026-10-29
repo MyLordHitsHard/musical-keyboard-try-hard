@@ -141,6 +141,7 @@
         if (this.idx === end && this.idx < this.o.steps.length) {
           PT.audio.ding();
           PT.store.addXp(4);
+          PT.bus.emit('unit', { ok: true });
           this.revealed = false;
           this.renderStrip();
           this.showTargets();
@@ -159,6 +160,8 @@
         const acc = Math.round((total / (total + this.errors)) * 100);
         PT.store.log(o.id, { acc, err: this.errors });
         PT.store.addXp(20);
+        PT.bus.emit('unit', { ok: true });
+        if (acc >= 90) st.good = (st.good || 0) + 1;
         PT.audio.ding();
         this.msg.textContent = `🎉 Whole song by ear! Accuracy ${acc}%. Press Restart to go again — fewer wrong notes each time.`;
         toast('Song complete by ear! +20 XP', 'good');
@@ -180,6 +183,7 @@
       this.sBpm.set(bpm);
       this.sEven.set(even + '%');
       PT.store.log(o.id, { bpm, even, err: this.errors, clean: clean ? 1 : 0, cbpm: clean ? bpm : undefined });
+      PT.bus.emit('unit', { ok: clean });
       if (clean) {
         st.clean++;
         PT.store.addXp(3);
@@ -422,6 +426,7 @@
         const rt = (now() - this.t0) / 1000;
         this.piano.flash(m, 'good');
         if (!this.missed) { this.rts.push(rt); this.firstTry++; }
+        PT.bus.emit('unit', { ok: !this.missed });
         this.n++;
         PT.store.addXp(1);
         this.sRt.set(this.rts.length ? mean(this.rts).toFixed(2) : '–');
@@ -543,6 +548,7 @@
         s.avg = s.n === 1 ? ms : s.avg * 0.6 + ms * 0.4; // recent attempts count more
         this.times.push(ms);
         this.n++;
+        PT.bus.emit('unit', { ok: true });
         PT.store.addXp(this.wrong ? 1 : 2);
         this.sT.set((mean(this.times) / 1000).toFixed(2));
         this.waitRelease = true;
@@ -650,6 +656,7 @@
         const prev = this.st.best[this.pair] || 0;
         if (this.count > prev) { this.st.best[this.pair] = this.count; toast(`New record: ${this.count} changes! 🎉`, 'good'); }
         PT.store.log('changes', { changes: this.count, pair: this.pair });
+        PT.bus.emit('unit', { ok: true });
         PT.store.addXp(10 + this.count);
         PT.store.save();
         PT.audio.ding();
@@ -734,6 +741,7 @@
       this.lvlSel.value = this.st.level;
       this.sLvl.set(this.st.level + 1);
       this.tonic = L.keys ? pick(KEY_TONICS) : 60;
+      this.toneName = PT.audio.earTone();
       this.piano.tonic = T.pc(this.tonic);
       this.piano.relabel();
       const lo = Math.min(...L.pool), hi = Math.max(...L.pool);
@@ -755,6 +763,7 @@
       this.piano.clear();
       this.renderDots();
       this.big.textContent = L.len === 1 ? 'Find this note' : `Play back ${L.len} notes`;
+      if (this.toneName) this.big.append(h('small.tonetag', ' 🎷 ' + this.toneName));
       this.sub.textContent = 'Listen…';
       this.tm = setTimeout(() => this.play(true), 400);
     }
@@ -814,6 +823,7 @@
       if (first) { this.okToday++; this.sOk.set(this.okToday); }
       PT.store.addXp(first ? 3 + this.notes.length : 1);
       PT.store.log('echo', { lvl: this.st.level + 1, ok: first ? 1 : 0, tries: this.tries });
+      PT.bus.emit('unit', { ok: !this.failed });
       const ch = this.failed ? 0 : adapt(this.st, first, ECHO_LEVELS.length - 1);
       if (this.failed) this.st.recent = (this.st.recent || []).concat(0).slice(-6);
       if (ch > 0) toast('Ear level up! ' + ECHO_LEVELS[this.st.level].name, 'good');
@@ -824,7 +834,7 @@
       this.notes = null;
       this.tm = setTimeout(() => this.nextItem(), 1200);
     }
-    destroy() { clearTimeout(this.tm); clearTimeout(this.tm2); window.removeEventListener('keydown', this.keyH); }
+    destroy() { clearTimeout(this.tm); clearTimeout(this.tm2); window.removeEventListener('keydown', this.keyH); PT.audio.promptTone = null; }
   }
 
   // ===================================================================
@@ -860,11 +870,13 @@
       clearTimeout(this.tm);
       this.answered = false;
       this.q = this.cfg.make(this.st.level, this.piano);
+      const toneName = PT.audio.earTone();
       this.piano.tonic = T.pc(this.q.tonic || 60);
       this.piano.relabel();
       this.piano.clear();
       this.sLvl.set(this.st.level + 1);
       this.big.textContent = this.cfg.prompt;
+      if (toneName) this.big.append(h('small.tonetag', ' 🎷 ' + toneName));
       this.sub.textContent = '';
       this.choices.innerHTML = '';
       this.q.options.forEach((o) => this.choices.append(h('button.choice', { onclick: () => this.answer(o.id) }, o.label)));
@@ -893,6 +905,7 @@
       if (ok) PT.audio.ding(); else PT.audio.buzz();
       PT.store.addXp(ok ? 2 : 0);
       PT.store.log('ear:' + this.kind, { ok: ok ? 1 : 0, lvl: this.st.level + 1 });
+      PT.bus.emit('unit', { ok });
       const ch = adapt(this.st, ok, this.cfg.levels - 1);
       if (ch > 0) toast('Level up! New answers added.', 'good');
       PT.store.save();
@@ -901,7 +914,7 @@
       if (this.q.after) this.q.after();
       this.tm = setTimeout(() => this.next(), ok ? 1800 : 3500);
     }
-    destroy() { clearTimeout(this.tm); }
+    destroy() { clearTimeout(this.tm); PT.audio.promptTone = null; }
   }
 
   const degName = (d, tonic) => {
