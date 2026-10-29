@@ -54,14 +54,14 @@ h3 { font-size: 1.05rem; margin: 1rem 0 .4rem; }
 header { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; padding: .5rem 1rem; background: var(--panel); border-bottom: 1px solid var(--line); }
 .logo { font-weight: 700; text-decoration: none; color: var(--ink); white-space: nowrap; }
 nav { display: flex; gap: .2rem; flex-wrap: wrap; }
-nav a { text-decoration: none; color: var(--muted); padding: .3rem .6rem; border-radius: 8px; }
+nav a { text-decoration: none; color: var(--muted); padding: .3rem .5rem; border-radius: 8px; }
 nav a.on, nav a:hover { background: var(--bg); color: var(--ink); }
 .right { margin-left: auto; display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
 .xp { display: flex; gap: .7rem; font-size: .9rem; color: var(--muted); align-items: center; }
 .xp .lvl { display: inline-flex; align-items: center; gap: .3rem; color: var(--ink); font-weight: 600; }
 .xp .bar { display: inline-block; width: 60px; height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
 .xp .bar span { display: block; height: 100%; background: var(--accent); }
-.midi { border: 1px solid var(--line); border-radius: 999px; padding: .25rem .8rem; font-size: .85rem; background: var(--bg); color: var(--muted); cursor: pointer; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.midi { border: 1px solid var(--line); border-radius: 999px; padding: .25rem .8rem; font-size: .85rem; background: var(--bg); color: var(--muted); cursor: pointer; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .midi.connected { color: var(--good); border-color: var(--good); }
 .midi.unsupported, .midi.denied, .midi.waiting { color: var(--bad); border-color: var(--bad); }
 
@@ -204,4 +204,50 @@ div.big { font-size: clamp(2.2rem, 7vw, 4rem); font-weight: 800; text-align: cen
   header { gap: .4rem; }
   .right { margin-left: 0; }
   main { padding: .6rem; }
+}
+
+/* ---------- Tones ---------- */
+#tone { font-size: .85rem; padding: .25rem .4rem; max-width: 150px; }
+.tonetag { display: block; font-size: .95rem; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+
+/* ---------- Daily lesson ---------- */
+.goalbar:not(:empty) { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: .6rem .9rem; margin: -.4rem 0 1rem; }
+.gbar { height: 10px; background: var(--line); border-radius: 5px; overflow: hidden; margin: .4rem 0; }
+.gbar span { display: block; height: 100%; background: var(--good); transition: width .3s; }
+.gmaster { font-size: .88rem; color: var(--muted); }
+.lessonlist { display: grid; gap: .3rem; margin: .6rem 0; }
+.lessonlist .li { display: grid; grid-template-columns: 1.8rem 1fr auto; gap: .5rem; align-items: center; padding: .35rem .6rem; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); }
+.lessonlist .li b { display: grid; place-items: center; width: 1.5rem; height: 1.5rem; border-radius: 50%; background: var(--line); font-size: .8rem; }
+.lessonlist .li.done { opacity: .6; }
+.lessonlist .li.done b { background: var(--good); color: #fff; }
+.lessonlist small { color: var(--muted); white-space: nowrap; }
+@media (max-width: 600px) { .lessonlist .li { grid-template-columns: 1.8rem 1fr; } .lessonlist small { grid-column: 2; } }
+
+/* ---------- Report ---------- */
+.verdict { font-size: 1.15rem; font-weight: 600; padding: .8rem 1rem; border-radius: 10px; margin: .6rem 0; border: 1px solid var(--line); }
+.verdict.good { background: rgba(31,157,85,.12); border-color: var(--good); }
+.verdict.mixed { background: var(--warn-bg); }
+.verdict.bad { background: rgba(224,69,58,.1); border-color: var(--bad); }
+.rgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: .8rem; }
+.rcard { border: 1px solid var(--line); border-radius: 10px; padding: .6rem .8rem; break-inside: avoid; }
+.rcard canvas { width: 100%; height: 120px; display: block; margin-top: .3rem; }
+.rhead { display: flex; justify-content: space-between; gap: .5rem; align-items: center; }
+.badge { font-size: .78rem; font-weight: 700; padding: .1rem .55rem; border-radius: 999px; white-space: nowrap; border: 1px solid var(--line); color: var(--muted); }
+.badge.up { background: var(--good); border-color: var(--good); color: #fff; }
+.badge.down { background: var(--bad); border-color: var(--bad); color: #fff; }
+.badge.flat { background: var(--warn-bg); color: var(--ink); }
+.rnums { margin-top: .3rem; }
+.pct.pos { color: var(--good); font-weight: 700; }
+.pct.neg { color: var(--bad); font-weight: 700; }
+.small { font-size: .8rem; }
+.advice li { margin: .3rem 0; }
+.tablewrap { overflow-x: auto; }
+table.weeks { border-collapse: collapse; width: 100%; font-size: .9rem; font-variant-numeric: tabular-nums; }
+table.weeks th, table.weeks td { text-align: left; padding: .35rem .6rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.printonly { display: none; }
+@media print {
+  header, .noprint, #toasts { display: none !important; }
+  .printonly { display: block; }
+  body, .panel { background: #fff; color: #000; border: 0; }
+  main { padding: 0; }
 }

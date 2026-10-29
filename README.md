@@ -11,7 +11,7 @@ There's nothing to install: it's plain HTML/JS that runs in **Chrome or Edge**.
 2. Download this repo (green **Code** button → **Download ZIP**) and unzip it.
 3. Double-click `index.html`. It must open in **Chrome or Edge**. Firefox and Safari can't read MIDI keyboards.
 4. Click **Allow** when the browser asks about MIDI devices. The pill at the top right turns green: 🎹 CASIO USB-MIDI.
-5. Press **▶ Start today's session**.
+5. Press **▶ Start today's lesson**.
 
 > If double-clicking doesn't connect, run a tiny local server in the folder: `python -m http.server 8000`, then open <http://localhost:8000>.
 >
@@ -30,11 +30,13 @@ On the keyboard: keep **auto-accompaniment / rhythm OFF** while practising, and 
 | 🎵 **Songs** | 8 melodies, each in two modes: **Learn** (guided) and **By ear** (no notes shown; you copy each phrase) | Clean reps, accuracy by ear |
 | 🧩 **Free play** | Names the chord you're holding live. Guesses the **key** of a song from the notes you pick out and suggests chords that fit | — |
 | 📄 **Chord sheets** | Paste a chord sheet from any website. It pulls out the chords, can transpose to the **easiest key**, and turns them into a drill | — |
-| 📈 **Progress** | Charts per day, personal bests, streak, XP and levels | — |
+| 📈 **Report** | *Am I improving?* Each skill gets a verdict (Improving / Flat / Slipping) from your first days vs your latest days. Also: this week vs last week, consistency, a week-by-week table, tips for any flat skill. Print/PDF or copy as text | — |
+| 🎵 **Tones** | 10 app sounds: grand piano, electric piano, harmonium, organ, strings, flute (bansuri), sitar, nylon guitar, music box, synth lead. Optionally a different tone per ear-training question | — |
 
 ## How it's designed (and why)
 
-- **Short mixed blocks.** The daily session is 10–30 minutes split into 4–6 blocks: fingers, keyboard map, chords, ear, song. Switching tasks keeps an ADHD brain engaged. Mixing skills ("interleaving") also tends to help long-term learning, even though repeating one thing *feels* more productive at the time ([Carter & Grahn 2016](https://www.frontiersin.org/journals/psychology/articles/10.3389/fpsyg.2016.01251/epub)).
+- **Repetition until mastered.** Each block of the daily lesson ends after a set number of **clean reps** (e.g. 10 clean finger reps, 24 chords, 12 echo tunes), not after a timer. The **same exercise comes back every day** until its goal tempo reaches 72 BPM (50 for chord loops); only then does the lesson move to the next one. Songs repeat until you have 8 clean plays, then come back in by-ear mode. Each lesson ends with the warm-up exercise again. Progress through today's lesson is saved, so you can stop and continue later.
+- **Short mixed blocks.** The daily lesson has 6–7 blocks: fingers, keyboard map (later scales), chords, ear, song, fingers again. Switching tasks keeps an ADHD brain engaged. Mixing skills ("interleaving") also tends to help long-term learning, even though repeating one thing *feels* more productive at the time ([Carter & Grahn 2016](https://www.frontiersin.org/journals/psychology/articles/10.3389/fpsyg.2016.01251/epub)).
 - **Accuracy first, then tempo.** Each finger drill keeps a *goal tempo*. Play **3 clean reps in a row** at the goal and the goal goes up by 4 BPM. Struggle 4 times and it comes down. You always practise at the edge of your ability, and never so fast that you're rehearsing mistakes. This suits slower fine-motor learning: the app never rushes you.
 - **Instant feedback.** Every key flashes green or red. Fingering numbers sit on the keys, and the next note is shown faintly.
 - **Measurable progress.** Every drill logs numbers you can watch fall or rise: seconds per note, BPM, chord changes per minute, ear level.
@@ -62,5 +64,6 @@ js/core.js        event bus, storage/XP, synth & metronome, MIDI + computer-keyb
 js/ui.js          on-screen piano, charts, helpers
 js/songs.js       song library
 js/drills.js      all drills
-js/app.js         pages: home, daily session, library, free play, chords, progress, settings
+js/report.js      "Am I improving?" report
+js/app.js         pages: home, daily lesson, library, free play, chords, progress, settings
 ```
